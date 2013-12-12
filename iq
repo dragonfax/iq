@@ -1,0 +1,97 @@
+#!/usr/bin/env ruby
+
+# movement tick = the time where all the blocks move down.
+
+class Cube
+
+  knows how to draw itself.
+  knows its position on the board(grid)
+  moves down each tick
+  will crush the avatar
+
+end
+
+class GreyCube < Cube
+
+  when it falls off the board, ends game
+
+end
+
+class BlackCube < Cube
+
+  when destroyed, ends game
+
+end
+
+class Avatar
+
+  knows how to draw itself
+
+  has a float board position
+
+  when destroyed, ends game.
+
+  listens to player for movement commands
+
+end
+
+class Board
+
+  rather fixes in size, doesn't really need state.
+  just a reference for everything else to go by.
+  and knows how to draw itself.
+
+end
+
+class Bomb
+
+  knows how to draw itself.
+
+end
+
+class BigBomb < Bomb
+
+  on activate, 
+    will destroy all nearby cubes.
+    will destroy the avatar if nearby
+
+  listens to player for bomb activation
+
+end
+
+class PuzzleGenerator
+
+  builds a puzzle from a solution backwards
+
+end
+
+class Player # (input)
+
+  emits input events
+
+  places a bomb when button is pressed.
+
+  ends game when escape is pressed.
+
+end
+
+class Screen
+
+  knows how to draw the whole game.
+  owns and manages he window
+
+  listens to everything, and anything that changes, it redraws
+    but no faster than a certain speed.
+
+end
+
+class Game
+
+  creats the board
+  creates the screen,
+  calls puzzle generator to create the first puzzle
+  creates the blocks for that puzzle
+  creates everything else if necessary
+  starts the movement tick
+
+end
