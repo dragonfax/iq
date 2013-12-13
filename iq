@@ -3,6 +3,12 @@
 require 'unobservable'
 
 # movement tick = the time where all the blocks move down.
+#
+# position is an int coord used for the grid
+# location is an int coord used for the screen or fine tuned location on the board.
+# i.e. 'location' would say exactly where in a grid square the avatar is location
+
+Coord = Struct.new(:x, :y)
 
 class Cube
 
@@ -15,14 +21,27 @@ class Cube
   # can be destroyd
   # also tracks the list of currently active cubes
 
-  def initialize
+  ALL = []
+
+  WIDTH = 20
+
+  attr_event :changed
+  attr_accessor :position
+
+  def initialize(position)
     Clock.machine_tick.register :movement_tick
+    ALL.push(self)
+    @position = position
   end
 
   def movement_tick
-    move down one square
-    kill player if landed upon
-    emit changed
+
+    # move down one square
+    # kill player if landed upon
+    # emit :changed
+
+    @position.y += 1
+    raise_event :changed
 
     if off_board?
       delete
@@ -36,14 +55,17 @@ class Cube
   def destroy
     # destroyed by a bomb
     delete
-    emit destroyed event
   end
 
   def delete
     # no longer needed in the game.
-    no longer draws itself
-    can remove itself from any lists of cubes
-    emit deleted event
+    #
+    # no longer draws itself
+    # remove itself from any lists of cubes
+
+    ALL.remove(self)
+
+    raise_event :changed
   end
 
 end
@@ -53,12 +75,12 @@ class GreyCube < Cube
   # when it falls off the board, ends game
 
   def movement_tick
-    super
-
     if off_board?
       puts "missed a grey cube"
       Game.close
     end
+
+    super
   end
 
 end
@@ -68,7 +90,6 @@ class BlackCube < Cube
   # when destroyed, ends game
 
   def destroy
-    super
     puts "destroyed a black cube"
     Game.close
   end
@@ -82,19 +103,43 @@ class Avatar
   # when destroyed, ends game.
   # listens to player for movement commands
 
+  include Unobservable::Support
+
+  attr_event :changed
+
   def initialize
     Player.move.register(:move)
-    @position = FloatCoord.new(0,0)
+    @location = Coord.new(0,0)
   end
 
-  def grid_coord
-    convert and return float coord to grid coord
+  def position
+    position_from_location(@location)
   end
 
-  def move
-    move to position specified
-    unless there is a block in the way
-    or it would be off the map
+  def position_from_location
+    # convert and return float coord to grid coord
+
+    Coord.new(location.x / Cube.WIDTH, location.y / Cube.WIDTH )
+  end
+
+  def move(x,y)
+    # move to position specified
+    # unless there is a block in the way
+    # or it would be off the map
+    #
+    new_location = Coord.new(x,y)
+
+    if not board.coord_within?(new_location)
+      # blocked by the edge
+    end
+
+    if Cube.ALL.any? { |cube| cube.position == new_location }
+      # blocked by a cube
+    end
+
+    @location = new_location
+
+    raise_event :changed
   end
 
   def kill
@@ -106,18 +151,35 @@ end
 
 class Board
 
-  has a size.
-  knows how to draw itself.
-  doesn't emit any events or listen to any
+  WIDTH = 6
+  HEIGHT = 20
+
+  # has a size.
+  # knows how to draw itself.
+  # doesn't emit any events or listen to any
 
 end
 
 class Bomb
 
-  knows how to draw itself.
-  also tracks the list of currently active bombs
+  # knows how to draw itself.
+  # also tracks the list of currently active bombs
 
-  BOMB_STACK = []
+  include Unobservable::Support
+
+  ALL = []
+
+  attr_event :changed
+
+  def initialize(position)
+    ALL.push(self)
+    @position = position
+  end
+
+  def delete
+    ALL.remove(self)
+    raise_event :changed
+  end
 
 end
 
@@ -128,20 +190,54 @@ class BigBomb < Bomb
   #  will destroy all nearby cubes.
   #  will destroy the avatar if nearby
 
-  def initialize(position)
-    @position = position
+  def activate
+    each_nearby_position do |coord|
+
+      # destroy all nearby cubes
+      Cube.ALL.each do |cube|
+        if cube.position == coord
+          cube.destroy
+        end
+      end
+
+      # destroy avatar if nearby
+      if avatar.position == coord
+        avatar.kill
+      end
+    end
+
+    delete
+    raise_event :changed
   end
 
-  def activate
-    destroy all nearby cubes
-    destroy avatar if nearby
+  def each_nearby_position
+    positions = []
+    (-1..1).each do |x_modifier|
+      (-1..1).each do |y_modifier|
+        coord = Coord.new(@position.x + x_modifier, @position.y + y_modifier)
+        if board.coord_within?(coord)
+          yield coord
+        end
+      end
+    end
   end
+
 
 end
 
 class PuzzleGenerator
 
+=begin
   builds a puzzle from a solution backwards
+
+  1. starting with a grid, the width of the playboard, but only a few rows in height.
+  2. drop a square of 9 cubes, as if unexploding a bomb.
+      the placement of the 9 cubes doesn't have to lie completely within this grid.
+      cubes falling outside of the grid will just be forgotten.
+  3. do this several times in random places, within that grid.
+
+  the number of times we cycled step 3 becomes the "Par" of bombs needed to complete this level.
+=end
 
 end
 
