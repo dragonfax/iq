@@ -24,17 +24,20 @@ class Cube
 
   ALL = []
 
-  WIDTH = 20
+  WIDTH = 5
 
   attr_event :changed
   attr_accessor :position
 
   class << self
+
+    include Unobservable::Support
+
     attr_event :any_changed
   end
 
   def initialize(position)
-    Clock.instance.machine_tick.register :movement_tick
+    Clock.instance.movement_tick.register :movement_tick
     ALL.push(self)
     @position = position
   end
@@ -129,10 +132,10 @@ class Avatar
     position_from_location(@location)
   end
 
-  def position_from_location
+  def position_from_location(location)
     # convert and return float coord to grid coord
 
-    Coord.new(location.x / Cube.WIDTH, location.y / Cube.WIDTH )
+    Coord.new(location.x / Cube::WIDTH, location.y / Cube::WIDTH )
   end
 
   def move(x,y)
@@ -140,13 +143,13 @@ class Avatar
     # unless there is a block in the way
     # or it would be off the map
     #
-    new_location = Coord.new(x,y)
+    new_location = Coord.new(location.x + x,location.y + y)
 
     if not board.coord_within?(new_location)
       # blocked by the edge
     end
 
-    if Cube.ALL.any? { |cube| cube.position == new_location }
+    if Cube::ALL.any? { |cube| cube.position == new_location }
       # blocked by a cube
     end
 
@@ -192,6 +195,7 @@ class Bomb
   attr_event :changed
 
   class << self
+    include Unobservable::Support
     attr_event :any_changed
   end
 
@@ -219,7 +223,7 @@ class BigBomb < Bomb
     each_nearby_position do |coord|
 
       # destroy all nearby cubes
-      Cube.ALL.each do |cube|
+      Cube::ALL.each do |cube|
         if cube.position == coord
           cube.destroy
         end
@@ -256,7 +260,7 @@ module PuzzleGenerator
 
     def initialize
       @grid = []
-      (0..Board.WIDTH - 1).each do |x|
+      (0..Board::WIDTH - 1).each do |x|
         @grid[x] = []
         (0..HEIGHT - 1).each do |y|
           @grid[x][y] = false
@@ -268,14 +272,16 @@ module PuzzleGenerator
       (-1..1).each do |x_modifier|
         (-1..1).each do |y_modifier|
           modified_position = Coord.new(random_position.x + x_modifier,random_position.y + y_modifier)
-          @grid[modified_position.x][modified_position.y] = true
+          if modified_position.x > 0 and modified_position.x < Board::WIDTH and modified_position.y > 0 and modified_position.y < PuzzleGenerator::HEIGHT
+            @grid[modified_position.x][modified_position.y] = true
+          end
         end
       end
     end
 
     def to_cubes
-      (0..Board.WIDTH - 1).each do |x|
-        (0..PuzzleGenerator.HEIGHT - 1).each do |y|
+      (0..Board::WIDTH - 1).each do |x|
+        (0..PuzzleGenerator::HEIGHT - 1).each do |y|
           if @grid[x][y]
             GreyCube.new(Coord.new(x,y))
           end
@@ -304,7 +310,7 @@ module PuzzleGenerator
     puzzle = Puzzle.new
 
     (0..2).each do
-      random_location = Coord.new(Random.rand(0..Board.WIDTH),Random.rand(2..HEIGHT)
+      random_position = Coord.new(Random.rand(0..Board::WIDTH),Random.rand(2..HEIGHT))
       puzzle._drop_bomb_at(random_position)
     end
 
@@ -324,9 +330,35 @@ class Player # (input)
   #   move (with a vector)
   #   end game (escape)
 
+  attr_event :move
+
+  def input_loop
+    while true
+      c = $stdin.getc
+      if c == 'w'
+        raise_event :move, 0, -1
+      elsif c == 's'
+        raise_event :move, 0, 1
+      elsif c == 'a'
+        raise_event :move, -1, 0
+      elsif c == 'd'
+        raise_event :move, 1, 0
+      elsif c == ' '
+        Bomb.new(Avatar.instance.position)
+      elsif c == 'q'
+        Game.instance.close
+      elsif c == "\n"
+        bomb = Bomb::ALL.pop
+        bomb.activate if bomb
+      end
+    end
+  end
+
 end
 
 class Screen
+
+  include Singleton
 
   # knows how to draw the whole game.
   # owns and manages he window
@@ -336,23 +368,29 @@ class Screen
   #   has ot listen to dynamic objects too or changes.
 
   def initialize
-    Avatar.instance.change.register :draw
+    Avatar.instance.changed.register :draw
     Cube.any_changed.register :draw
     Bomb.any_changed.register :draw
+
+    @screen = nil
+  end
+
+  def clear
+  end
+
+  def flush
   end
 
   def draw
 
-=begin
-    draw board
-    draw bombs
-    draw cubes
-    draw avatar
+    clear
 
-    or draw everythiugn from bottom up, back forward.
-    or leave it up to opengl, and just create a scenegraph
-=end
+    Board.instance.draw
+    Bomb.draw_all
+    Cube.draw_all
+    Avatar.instance.draw
 
+    flush
   end
 
 end
@@ -379,6 +417,8 @@ class Game
 
     # create the screen so it starts drawing.
     Screen.instance
+
+    Player.instance.input_loop
   end
 
   def initialize
@@ -392,6 +432,9 @@ class Game
   end
 
   def close
+    exit(0)
   end
 
 end
+
+Game.instance.start
