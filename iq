@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 
 require 'unobservable'
+require 'singleton'
 
 # movement tick = the time where all the blocks move down.
 #
@@ -28,8 +29,12 @@ class Cube
   attr_event :changed
   attr_accessor :position
 
+  class << self
+    attr_event :any_changed
+  end
+
   def initialize(position)
-    Clock.machine_tick.register :movement_tick
+    Clock.instance.machine_tick.register :movement_tick
     ALL.push(self)
     @position = position
   end
@@ -42,15 +47,21 @@ class Cube
 
     @position.y += 1
     raise_event :changed
+    Cube.raise_event :any_changed
 
     if off_board?
       delete
     end
 
-    if avatar.collides?(self)
+    if Avatar.instance.collides?(self)
       avatar.kill
     end
   end
+
+  def off_board?
+    not Board.instance.coord_within?(@position)
+  end
+
 
   def destroy
     # destroyed by a bomb
@@ -66,6 +77,7 @@ class Cube
     ALL.remove(self)
 
     raise_event :changed
+    Cube.raise_event :any_changed
   end
 
 end
@@ -77,7 +89,7 @@ class GreyCube < Cube
   def movement_tick
     if off_board?
       puts "missed a grey cube"
-      Game.close
+      Game.instance.close
     end
 
     super
@@ -91,7 +103,7 @@ class BlackCube < Cube
 
   def destroy
     puts "destroyed a black cube"
-    Game.close
+    Game.instance.close
   end
 
 end
@@ -103,12 +115,13 @@ class Avatar
   # when destroyed, ends game.
   # listens to player for movement commands
 
+  include Singleton
   include Unobservable::Support
 
   attr_event :changed
 
   def initialize
-    Player.move.register(:move)
+    Player.instance.move.register(:move)
     @location = Coord.new(0,0)
   end
 
@@ -144,12 +157,14 @@ class Avatar
 
   def kill
     puts "avatar killed"
-    Game.close
+    Game.instance.close
   end
 
 end
 
 class Board
+
+  include Singleton
 
   WIDTH = 6
   HEIGHT = 20
@@ -157,6 +172,11 @@ class Board
   # has a size.
   # knows how to draw itself.
   # doesn't emit any events or listen to any
+
+  def coord_within?(position)
+    position.x > 0 and position.y < WIDTH and position.y > 0 and position.y < HEIGHT
+  end
+
 
 end
 
@@ -171,6 +191,10 @@ class Bomb
 
   attr_event :changed
 
+  class << self
+    attr_event :any_changed
+  end
+
   def initialize(position)
     ALL.push(self)
     @position = position
@@ -179,6 +203,7 @@ class Bomb
   def delete
     ALL.remove(self)
     raise_event :changed
+    Bomb.raise_event :any_changed
   end
 
 end
@@ -201,13 +226,14 @@ class BigBomb < Bomb
       end
 
       # destroy avatar if nearby
-      if avatar.position == coord
+      if Avatar.instance.position == coord
         avatar.kill
       end
     end
 
     delete
     raise_event :changed
+    Bomb.raise_event :any_changed
   end
 
   def each_nearby_position
@@ -222,10 +248,42 @@ class BigBomb < Bomb
     end
   end
 
-
 end
 
-class PuzzleGenerator
+module PuzzleGenerator
+
+  class Puzzle
+
+    def initialize
+      @grid = []
+      (0..Board.WIDTH - 1).each do |x|
+        @grid[x] = []
+        (0..HEIGHT - 1).each do |y|
+          @grid[x][y] = false
+        end
+      end
+    end
+
+    def _drop_bomb_at(random_position)
+      (-1..1).each do |x_modifier|
+        (-1..1).each do |y_modifier|
+          modified_position = Coord.new(random_position.x + x_modifier,random_position.y + y_modifier)
+          @grid[modified_position.x][modified_position.y] = true
+        end
+      end
+    end
+
+    def to_cubes
+      (0..Board.WIDTH - 1).each do |x|
+        (0..PuzzleGenerator.HEIGHT - 1).each do |y|
+          if @grid[x][y]
+            GreyCube.new(Coord.new(x,y))
+          end
+        end
+      end
+    end
+
+  end
 
 =begin
   builds a puzzle from a solution backwards
@@ -239,33 +297,53 @@ class PuzzleGenerator
   the number of times we cycled step 3 becomes the "Par" of bombs needed to complete this level.
 =end
 
+  HEIGHT = 6
+
+  def self.generate_puzzle
+
+    puzzle = Puzzle.new
+
+    (0..2).each do
+      random_location = Coord.new(Random.rand(0..Board.WIDTH),Random.rand(2..HEIGHT)
+      puzzle._drop_bomb_at(random_position)
+    end
+
+    puzzle
+  end
+
 end
 
 class Player # (input)
 
-  emits input events
-    activate (bomb)
-      bomb ont he top of the stack
-    move (with a vector)
-    end game (escape)
+  include Singleton
+  include Unobservable::Support
 
-  def initialize
-    setup to activate the next bomb on "activate"
-  end
+  # emits input events
+  #   activate (bomb)
+  #     bomb on the top of the bomb stack
+  #   move (with a vector)
+  #   end game (escape)
 
 end
 
 class Screen
 
-  knows how to draw the whole game.
-  owns and manages he window
+  # knows how to draw the whole game.
+  # owns and manages he window
+  #
+  # listens to everything, and anything that changes, it redraws
+  #   but no faster than a certain speed.
+  #   has ot listen to dynamic objects too or changes.
 
-  listens to everything, and anything that changes, it redraws
-    but no faster than a certain speed.
-    has ot listen to dynamic objects too or changes.
+  def initialize
+    Avatar.instance.change.register :draw
+    Cube.any_changed.register :draw
+    Bomb.any_changed.register :draw
+  end
 
   def draw
 
+=begin
     draw board
     draw bombs
     draw cubes
@@ -273,21 +351,47 @@ class Screen
 
     or draw everythiugn from bottom up, back forward.
     or leave it up to opengl, and just create a scenegraph
+=end
 
   end
 
 end
 
+class Clock
+  include Singleton
+  include Unobservable::Support
+
+  attr_event :movement_tick
+
+  # emits movement tick
+
+end
+
 class Game
 
-  creats the board
-  creates the screen,
-  calls puzzle generator to create the first puzzle
-  creates the blocks for that puzzle
-  creates everything else if necessary
-  starts the movement tick
+  # starts the game up
+  # checks for any non-owned end-game scenerios, like all cubes gone.
 
-  listens to cubed.
-  if last Cube :deleted, game ends
+  include Singleton
+
+  def start
+    PuzzleGenerator.generate_puzzle.to_cubes
+
+    # create the screen so it starts drawing.
+    Screen.instance
+  end
+
+  def initialize
+    Cube.any_changed.register :close_check
+  end
+
+  def close_check
+    if Cube.ALL.size == 0
+      close
+    end
+  end
+
+  def close
+  end
 
 end
