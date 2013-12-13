@@ -172,7 +172,7 @@ class Avatar
     # or it would be off the map
 
     puts "player move requested"
-    new_location = Coord.new(location.x + x,location.y + y)
+    new_location = Coord.new(@location.x + x,@location.y + y)
 
     if not Board.instance.coord_within?(new_location)
       # blocked by the edge
