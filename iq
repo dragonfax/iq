@@ -83,6 +83,33 @@ class Cube
     Cube.raise_event :any_changed
   end
 
+  def draw
+    Cube.locations_from_position(@position).each do |location|
+      Screen.instance.grid[location.x][location.y] = 'X'
+    end
+  end
+
+  def self.center_location_from_position(position)
+    locations = []
+    locations.push(Coord.new(position.x * Cube::WIDTH + Cube::WIDTH/2, position.y * Cube::WIDTH  + Cube::WIDTH/2))
+    locations
+  end
+
+
+  def self.locations_from_position(position)
+    locations = []
+    (0..Cube::WIDTH - 1).each do |x|
+      (0..Cube::WIDTH - 1).each do |y|
+        locations.push(Coord.new(position.x * Cube::WIDTH + x, position.y * Cube::WIDTH + y))
+      end
+    end
+    locations
+  end
+
+  def self.draw_all
+    ALL.each {|cube| cube.draw}
+  end
+
 end
 
 class GreyCube < Cube
@@ -100,6 +127,7 @@ class GreyCube < Cube
 
 end
 
+=begin
 class BlackCube < Cube
 
   # when destroyed, ends game
@@ -110,6 +138,7 @@ class BlackCube < Cube
   end
 
 end
+=end
 
 class Avatar
 
@@ -163,6 +192,10 @@ class Avatar
     Game.instance.close
   end
 
+  def draw
+    Screen.instance.grid[position.x][position.y] = 'P'
+  end
+
 end
 
 class Board
@@ -180,6 +213,8 @@ class Board
     position.x > 0 and position.y < WIDTH and position.y > 0 and position.y < HEIGHT
   end
 
+  def draw
+  end
 
 end
 
@@ -208,6 +243,15 @@ class Bomb
     ALL.remove(self)
     raise_event :changed
     Bomb.raise_event :any_changed
+  end
+
+  def draw
+    location = position_to_location(@position)
+    Screen.instance.grid[location.x][location.y] = 'T'
+  end
+
+  def self.draw_all
+    ALL.each {|bomb| bomb.draw}
   end
 
 end
@@ -351,6 +395,8 @@ class Player # (input)
         bomb = Bomb::ALL.pop
         bomb.activate if bomb
       end
+
+      Screen.instance.draw
     end
   end
 
@@ -367,18 +413,33 @@ class Screen
   #   but no faster than a certain speed.
   #   has ot listen to dynamic objects too or changes.
 
+  attr_reader :grid
+
   def initialize
     Avatar.instance.changed.register :draw
     Cube.any_changed.register :draw
     Bomb.any_changed.register :draw
 
-    @screen = nil
+    @grid = nil
   end
 
   def clear
+    @grid = []
+    (0..Cube::WIDTH * Board::WIDTH).each do |x|
+      @grid[x] = []
+      (0..Cube::WIDTH * Board::HEIGHT).each do |y|
+        @grid[x][y] = ' '
+      end
+    end
   end
 
   def flush
+    (0..Cube::WIDTH * Board::WIDTH).each do |x|
+      (0..Cube::WIDTH * Board::HEIGHT).each do |y|
+        putc @grid[x][y]
+      end
+      puts
+    end
   end
 
   def draw
