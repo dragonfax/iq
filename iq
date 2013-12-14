@@ -35,6 +35,11 @@ class Cube
     include Unobservable::Support
 
     attr_event :any_changed
+
+    def emit_changed
+      raise_event :any_changed
+    end
+
   end
 
   def initialize(position)
@@ -51,7 +56,7 @@ class Cube
 
     @position.y += 1
     raise_event :changed
-    Cube.raise_event :any_changed
+    self.class.raise_event :any_changed
 
     if off_board?
       delete
@@ -63,7 +68,7 @@ class Cube
   end
 
   def off_board?
-    not Board.instance.coord_within?(@position)
+    not Board.instance.position_within?(@position)
   end
 
 
@@ -78,10 +83,11 @@ class Cube
     # no longer draws itself
     # remove itself from any lists of cubes
 
-    ALL.remove(self)
+    ALL.delete(self)
 
+    emit_changed
     raise_event :changed
-    Cube.raise_event :any_changed
+    Cube.emit_changed
   end
 
   def draw
@@ -142,7 +148,7 @@ end
 class Avatar
 
   # knows how to draw itself
-  # has a float board position
+  # has a 'location', isntead of a grid 'position'
   # when destroyed, ends game.
   # listens to player for movement commands
 
@@ -157,10 +163,10 @@ class Avatar
   end
 
   def position
-    position_from_location(@location)
+    Avatar.position_from_location(@location)
   end
 
-  def position_from_location(location)
+  def self.position_from_location(location)
     # convert and return float coord to grid coord
 
     Coord.new(location.x / Cube::WIDTH, location.y / Cube::WIDTH )
@@ -174,23 +180,20 @@ class Avatar
     puts "player move requested"
     new_location = Coord.new(@location.x + x,@location.y + y)
 
-    if not Board.instance.coord_within?(new_location)
+    puts "new player position #{new_location}"
+
+    if not Board.instance.position_within?(Avatar.position_from_location(new_location))
       # blocked by the edge
       puts "player blocked by edge"
-    end
-
-    if Cube::ALL.any? { |cube| cube.position == new_location }
+    elsif Cube::ALL.any? { |cube| cube.position == Avatar.position_from_location(new_location) }
       # blocked by a cube
       puts "player blocked by cube."
+    else
+      @location = new_location
+      puts "player moved to #{@location}"
+      raise_event :changed
     end
 
-    @location = new_location
-
-    puts "player moved to #{@location}"
-
-    puts "emitting changed event for player"
-    raise_event :changed
-    puts "returned from changed event for player"
   end
 
   def kill
@@ -199,7 +202,7 @@ class Avatar
   end
 
   def draw
-    Screen.instance.grid[position.x][position.y] = 'P'
+    Screen.instance.grid[@location.x][@location.y] = 'P'
   end
 
 end
@@ -215,14 +218,25 @@ class Board
   # knows how to draw itself.
   # doesn't emit any events or listen to any
 
-  def coord_within?(position)
-    position.x > 0 and position.y < WIDTH and position.y > 0 and position.y < HEIGHT
+  def position_within?(position)
+    position.x > 0 and position.x < WIDTH and position.y > 0 and position.y < HEIGHT
   end
 
   def draw
   end
 
 end
+
+raise unless Board.instance.position_within?(Coord.new(0,0))
+raise unless Board.instance.position_within?(Coord.new(1,0))
+raise unless Board.instance.position_within?(Coord.new(0,1))
+raise unless Board.instance.position_within?(Coord.new(1,1))
+raise unless Board.instance.position_within?(Coord.new(5,19))
+raise if Board.instance.position_within?(Coord.new(-1,0))
+raise if Board.instance.position_within?(Coord.new(0,-1))
+raise if Board.instance.position_within?(Coord.new(-1,0))
+raise if Board.instance.position_within?(Coord.new(-1,-1))
+
 
 class Bomb
 
@@ -238,6 +252,10 @@ class Bomb
   class << self
     include Unobservable::Support
     attr_event :any_changed
+
+    def emit_changed
+      raise_event :any_changed
+    end
   end
 
   def initialize(position)
@@ -246,9 +264,9 @@ class Bomb
   end
 
   def delete
-    ALL.remove(self)
+    ALL.delete(self)
     raise_event :changed
-    Bomb.raise_event :any_changed
+    Bomb.emit_changed
   end
 
   def draw
@@ -287,7 +305,7 @@ class BigBomb < Bomb
 
     delete
     raise_event :changed
-    Bomb.raise_event :any_changed
+    Bomb.emit_changed
   end
 
   def each_nearby_position
@@ -295,7 +313,7 @@ class BigBomb < Bomb
     (-1..1).each do |x_modifier|
       (-1..1).each do |y_modifier|
         coord = Coord.new(@position.x + x_modifier, @position.y + y_modifier)
-        if board.coord_within?(coord)
+        if Board.instance.position_within?(coord)
           yield coord
         end
       end
@@ -399,11 +417,11 @@ class Player # (input)
         raise_event :move, 1, 0
       elsif c == ' '
         puts "drop bomb"
-        Bomb.new(Avatar.instance.position)
+        BigBomb.new(Avatar.instance.position)
       elsif c == 'q'
         puts "end game"
         Game.instance.close
-      elsif c == "\n"
+      elsif c == 'e'
         puts "explode bomb"
         bomb = Bomb::ALL.pop
         bomb.activate if bomb
